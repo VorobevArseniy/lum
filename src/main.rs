@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt::{Display, Write},
     hash::{DefaultHasher, Hash, Hasher},
     io::{self, BufRead, Write as IOWrite},
@@ -244,10 +245,10 @@ impl Expr {
         }
     }
 
-    fn eval_one(&self, bindings: &[Binding]) -> Self {
+    fn eval_one(&self, bindings: &HashMap<String, Binding>) -> Self {
         match self.clone() {
             Expr::Var { name, .. } => {
-                if let Some(binding) = bindings.iter().find(|&x| x.name == name) {
+                if let Some(binding) = bindings.get(&name) {
                     binding.body.clone()
                 } else {
                     self.clone()
@@ -255,8 +256,11 @@ impl Expr {
             }
             Expr::Fun { arg, body } => {
                 // preventing binding capture
-                let filtered_bindings: Vec<Binding> =
-                    bindings.iter().filter(|b| b.name != arg).cloned().collect();
+                let filtered_bindings = bindings
+                    .clone()
+                    .into_iter()
+                    .filter(|(name, _)| **name != arg)
+                    .collect();
 
                 let evaluated_body = body.eval_one(&filtered_bindings);
 
@@ -286,7 +290,7 @@ impl Expr {
         }
     }
 
-    fn eval(&self, bindings: &[Binding]) -> Expr {
+    fn eval(&self, bindings: &HashMap<String, Binding>) -> Expr {
         let mut current = self.clone();
         loop {
             let next = current.eval_one(&bindings);
@@ -390,20 +394,19 @@ impl Display for Binding {
 
 impl State {
     fn new() -> Self {
-        Self { bindings: vec![] }
+        Self {
+            bindings: HashMap::new(),
+        }
     }
 
     fn push_binding(&mut self, binding: Binding) {
-        match self.bindings.iter_mut().find(|b| b.name == binding.name) {
-            Some(existing) => *existing = binding,
-            None => self.bindings.push(binding),
-        }
+        self.bindings.insert(binding.name.clone(), binding);
     }
 
     fn display_bindigs(&self) -> String {
         self.bindings
             .iter()
-            .map(|binding| format!(" > {}\n", binding))
+            .map(|(_, binding)| format!(" > {}\n", binding))
             .collect()
     }
 }
@@ -430,7 +433,7 @@ impl Binding {
 }
 
 struct State {
-    bindings: Vec<Binding>,
+    bindings: HashMap<String, Binding>,
 }
 
 fn main() {
