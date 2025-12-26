@@ -1,5 +1,6 @@
 use std::{
     fmt::{Display, Write},
+    hash::{DefaultHasher, Hash, Hasher},
     io::{self, BufRead, Write as IOWrite},
     str::Chars,
 };
@@ -12,6 +13,7 @@ pub enum Token {
     Dot,
     LParen,
     RParen,
+    Equal, // =
 
     Ident(String),
 
@@ -84,6 +86,10 @@ impl<'a> Lexer<'a> {
                 '.' => {
                     self.advance();
                     Token::Dot
+                }
+                '=' => {
+                    self.advance();
+                    Token::Equal
                 }
                 c if c.is_alphanumeric() => Token::Ident(self.read_ident()),
                 c => {
@@ -193,6 +199,14 @@ impl<'a> Parser<'a> {
 
         Ok(expr)
     }
+
+    fn parse_binding(&mut self) -> Result<Binding, String> {
+        let name = self.expect_ident()?;
+        self.expect(Token::Equal)?;
+        let body = self.parse_expr()?;
+
+        Ok(Binding::new(name, body))
+    }
 }
 
 // -----------------------
@@ -201,14 +215,19 @@ impl<'a> Parser<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Var { name: String },
+    Var { name: String, hash: u64 },
     Fun { arg: String, body: Box<Expr> },
     App { lhs: Box<Expr>, rhs: Box<Expr> },
 }
 
 impl Expr {
-    fn var(name: impl Into<String>) -> Self {
-        Self::Var { name: name.into() }
+    fn var(name: impl Into<String> + Clone + Hash) -> Self {
+        let mut s = DefaultHasher::new();
+        name.clone().hash(&mut s);
+        Self::Var {
+            name: name.into(),
+            hash: s.finish(),
+        }
     }
 
     fn fun(arg: impl Into<String>, body: Expr) -> Self {
@@ -225,11 +244,17 @@ impl Expr {
         }
     }
 
-    fn eval_one(&self) -> Self {
+    fn eval_one(&self, bindigs: &[Binding]) -> Self {
         match self.clone() {
-            Expr::Var { .. } => self.clone(),
+            Expr::Var { name, .. } => {
+                if let Some(binding) = bindigs.iter().find(|&x| x.name == name) {
+                    binding.body.clone()
+                } else {
+                    self.clone()
+                }
+            }
             Expr::Fun { arg, body } => {
-                let evaluated_body = body.eval_one();
+                let evaluated_body = body.eval_one(bindigs);
 
                 if evaluated_body != *body {
                     Expr::fun(arg, evaluated_body)
@@ -242,12 +267,12 @@ impl Expr {
                     return reduce(&lhs, &rhs);
                 }
 
-                let evaluated_lhs = lhs.eval_one();
+                let evaluated_lhs = lhs.eval_one(bindigs);
                 if *lhs != evaluated_lhs {
                     return Expr::app(evaluated_lhs, *rhs.clone());
                 }
 
-                let evaluated_rhs = rhs.eval_one();
+                let evaluated_rhs = rhs.eval_one(bindigs);
                 if *rhs != evaluated_rhs {
                     return Expr::app(evaluated_lhs, evaluated_rhs);
                 }
@@ -257,10 +282,10 @@ impl Expr {
         }
     }
 
-    fn eval(&self) -> Expr {
+    fn eval(&self, bindings: &[Binding]) -> Expr {
         let mut current = self.clone();
         loop {
-            let next = current.eval_one();
+            let next = current.eval_one(&bindings);
             if next == current {
                 return current;
             }
@@ -283,7 +308,7 @@ impl Expr {
                 .collect();
 
             match expr {
-                Expr::Var { name } => format!("{}[VAR] {}\n", prefix, name),
+                Expr::Var { name, .. } => format!("{}[VAR] {}\n", prefix, name),
                 Expr::App { lhs, rhs } => {
                     let mut result = format!("{}[APP]\n", prefix);
                     result += &dump_ast(lhs, &[indent, &[true]].concat());
@@ -304,7 +329,7 @@ impl Expr {
 
 fn replace(param: &String, body: &Expr, val: &Expr) -> Expr {
     match body {
-        Expr::Var { name } => {
+        Expr::Var { name, .. } => {
             if name == param {
                 val.clone()
             } else {
@@ -335,7 +360,7 @@ fn reduce(fun: &Expr, val: &Expr) -> Expr {
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expr::Var { name } => f.write_str(name),
+            Expr::Var { name, .. } => f.write_str(name),
             Expr::Fun { arg, body } => {
                 f.write_char('λ')?;
                 f.write_str(arg)?;
@@ -353,9 +378,58 @@ impl Display for Expr {
     }
 }
 
+impl Display for Binding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{} = {}", self.name, self.body))
+    }
+}
+
+impl State {
+    fn new() -> Self {
+        Self { bindings: vec![] }
+    }
+
+    fn push_binding(&mut self, binding: Binding) {
+        self.bindings.push(binding);
+    }
+
+    fn display_bindigs(&self) -> String {
+        self.bindings
+            .iter()
+            .map(|binding| format!("-> {}", binding))
+            .collect()
+    }
+}
+
+pub struct Binding {
+    pub name: String,
+    pub body: Expr,
+    pub hash: u64,
+}
+
+impl Binding {
+    fn new(name: String, body: Expr) -> Self {
+        let mut s = DefaultHasher::new();
+
+        name.hash(&mut s);
+
+        Self {
+            name,
+            body,
+            hash: s.finish(),
+        }
+    }
+}
+
+struct State {
+    bindings: Vec<Binding>,
+}
+
 fn main() {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
+
+    let mut state = State::new();
 
     loop {
         print!("λ> ");
@@ -378,17 +452,13 @@ fn main() {
             match parser.parse_expr() {
                 Ok(expr) => {
                     let mut current = expr.clone();
-                    println!(
-                        "!> Debugging: {}\n   Press <Enter> to step eval or type 'quit' to quit.\n",
-                        current
-                    );
                     loop {
                         println!("#> {}", current);
-                        let next = current.eval_one();
+                        let next = current.eval_one(&state.bindings);
                         if next == current {
                             break;
                         }
-                        print!("->");
+                        print!("-->");
                         stdout.flush().unwrap();
 
                         let mut input = String::new();
@@ -415,9 +485,26 @@ fn main() {
             continue;
         }
 
+        if let Some(input) = input.trim().strip_prefix(":let") {
+            let mut parser = Parser::new(&input.trim_start());
+            match parser.parse_binding() {
+                Ok(binding) => {
+                    println!("!> Created binding '{}'", binding.name);
+                    state.push_binding(binding);
+                }
+                Err(e) => println!("!> {}", e),
+            }
+            continue;
+        }
+
+        if let Some(..) = input.trim().strip_prefix(":list") {
+            println!("{}", state.display_bindigs());
+            continue;
+        }
+
         let mut parser = Parser::new(&input);
         match parser.parse_expr() {
-            Ok(expr) => println!("λ> {}", expr.eval()),
+            Ok(expr) => println!("λ> {}", expr.eval(&state.bindings)),
             Err(e) => println!("!> {}", e),
         };
     }
