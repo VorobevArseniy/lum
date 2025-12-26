@@ -396,7 +396,7 @@ impl State {
     fn display_bindigs(&self) -> String {
         self.bindings
             .iter()
-            .map(|binding| format!("-> {}", binding))
+            .map(|binding| format!(" > {}\n", binding))
             .collect()
     }
 }
