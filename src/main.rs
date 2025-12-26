@@ -244,17 +244,17 @@ impl Expr {
         }
     }
 
-    fn eval_one(&self, bindigs: &[Binding]) -> Self {
+    fn eval_one(&self, bindings: &[Binding]) -> Self {
         match self.clone() {
             Expr::Var { name, .. } => {
-                if let Some(binding) = bindigs.iter().find(|&x| x.name == name) {
+                if let Some(binding) = bindings.iter().find(|&x| x.name == name) {
                     binding.body.clone()
                 } else {
                     self.clone()
                 }
             }
             Expr::Fun { arg, body } => {
-                let evaluated_body = body.eval_one(bindigs);
+                let evaluated_body = body.eval_one(bindings);
 
                 if evaluated_body != *body {
                     Expr::fun(arg, evaluated_body)
@@ -267,12 +267,12 @@ impl Expr {
                     return reduce(&lhs, &rhs);
                 }
 
-                let evaluated_lhs = lhs.eval_one(bindigs);
+                let evaluated_lhs = lhs.eval_one(bindings);
                 if *lhs != evaluated_lhs {
                     return Expr::app(evaluated_lhs, *rhs.clone());
                 }
 
-                let evaluated_rhs = rhs.eval_one(bindigs);
+                let evaluated_rhs = rhs.eval_one(bindings);
                 if *rhs != evaluated_rhs {
                     return Expr::app(evaluated_lhs, evaluated_rhs);
                 }
