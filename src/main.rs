@@ -394,7 +394,10 @@ impl State {
     }
 
     fn push_binding(&mut self, binding: Binding) {
-        self.bindings.push(binding);
+        match self.bindings.iter_mut().find(|b| b.name == binding.name) {
+            Some(existing) => *existing = binding,
+            None => self.bindings.push(binding),
+        }
     }
 
     fn display_bindigs(&self) -> String {
