@@ -1,4 +1,4 @@
-# Lamb-rust
+# Lum
 
 Inspired by [lamb](https://github.com/tsoding/lamb) from [TSoding](https://github.com/tsoding)
 
@@ -62,4 +62,4 @@ Bindings are lazy! Means they won't evaluate until they used in expression
 - `:debug <expr>` step-by-step evaluation of the expression
 - `:let <name> = <expr>` save expression in a associative name (binding)
 - `:list` list all existing bindings
-- `:delete <name>` elete binding by it's name
+- `:delete <name>` delete binding by it's name
