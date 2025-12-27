@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::{Display, Write},
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::Hash,
     io::{self, BufRead, Write as IOWrite},
     str::Chars,
 };
@@ -18,8 +18,10 @@ pub enum Token {
 
     Ident(String),
 
+    // special
     Invalid(char),
     EOL,
+    EOI,
 }
 
 pub struct Lexer<'a> {
@@ -216,19 +218,14 @@ impl<'a> Parser<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Var { name: String, hash: u64 },
+    Var { name: String },
     Fun { arg: String, body: Box<Expr> },
     App { lhs: Box<Expr>, rhs: Box<Expr> },
 }
 
 impl Expr {
     fn var(name: impl Into<String> + Clone + Hash) -> Self {
-        let mut s = DefaultHasher::new();
-        name.clone().hash(&mut s);
-        Self::Var {
-            name: name.into(),
-            hash: s.finish(),
-        }
+        Self::Var { name: name.into() }
     }
 
     fn fun(arg: impl Into<String>, body: Expr) -> Self {
@@ -422,20 +419,11 @@ impl State {
 pub struct Binding {
     pub name: String,
     pub body: Expr,
-    pub hash: u64,
 }
 
 impl Binding {
     fn new(name: String, body: Expr) -> Self {
-        let mut s = DefaultHasher::new();
-
-        name.hash(&mut s);
-
-        Self {
-            name,
-            body,
-            hash: s.finish(),
-        }
+        Self { name, body }
     }
 }
 
