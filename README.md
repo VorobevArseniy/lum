@@ -42,7 +42,6 @@ To run use `$ cargo run` in console.
 Use `:let` command to create binding:
 
 ```
-
 λ> :let id = \x.x
 !> Created binding 'id'
 λ> id 420
@@ -63,3 +62,5 @@ Bindings are lazy! Means they won't evaluate until they used in expression
 - `:let <name> = <expr>` save expression in a associative name (binding)
 - `:list` list all existing bindings
 - `:delete <name>` delete binding by it's name
+- `:save <path>` save all bindings to file
+- `:load <path>` load bindings from file

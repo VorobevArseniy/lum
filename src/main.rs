@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::{Display, Write},
+    fs,
     hash::Hash,
     io::{self, BufRead, Write as IOWrite},
     str::Chars,
@@ -10,20 +11,23 @@ use std::{
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
 pub enum Token {
-    Lambda,
-    Dot,
-    LParen,
-    RParen,
-    Equal, // =
+    Lambda,    // \ or λ
+    Dot,       // .
+    LParen,    // (
+    RParen,    // )
+    Equal,     // =
+    SemiColon, // ;
+    Comment,   // --
 
     Ident(String),
 
     // special
     Invalid(char),
-    EOL,
+    Newline,
     EOI,
 }
 
+#[derive(Debug)]
 pub struct Lexer<'a> {
     input: Chars<'a>,
     cur: Option<char>,
@@ -48,9 +52,18 @@ impl<'a> Lexer<'a> {
 
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.cur {
-            if c.is_whitespace() || c == '\n' {
+            if c.is_whitespace() {
                 self.advance();
             } else {
+                break;
+            }
+        }
+    }
+
+    fn drop_line(&mut self) {
+        while let Some(c) = self.cur {
+            self.advance();
+            if c == '\n' {
                 break;
             }
         }
@@ -72,38 +85,58 @@ impl<'a> Lexer<'a> {
     fn next(&mut self) -> Token {
         self.skip_whitespace();
 
-        let token = match self.cur {
-            Some(c) => match c {
-                '\\' | 'λ' => {
-                    self.advance();
-                    Token::Lambda
-                }
-                '(' => {
-                    self.advance();
-                    Token::LParen
-                }
-                ')' => {
-                    self.advance();
-                    Token::RParen
-                }
-                '.' => {
-                    self.advance();
-                    Token::Dot
-                }
-                '=' => {
-                    self.advance();
-                    Token::Equal
-                }
-                c if c.is_alphanumeric() => Token::Ident(self.read_ident()),
-                c => {
-                    self.advance();
-                    Token::Invalid(c)
-                }
-            },
-            None => Token::EOL,
-        };
+        loop {
+            let token = match self.cur {
+                Some(c) => match c {
+                    '\\' | 'λ' => {
+                        self.advance();
+                        Token::Lambda
+                    }
+                    '(' => {
+                        self.advance();
+                        Token::LParen
+                    }
+                    ')' => {
+                        self.advance();
+                        Token::RParen
+                    }
+                    '.' => {
+                        self.advance();
+                        Token::Dot
+                    }
+                    '=' => {
+                        self.advance();
+                        Token::Equal
+                    }
+                    ';' => {
+                        self.advance();
+                        Token::SemiColon
+                    }
+                    '-' => {
+                        self.advance();
+                        if self.cur == Some('-') {
+                            self.advance();
+                            self.drop_line();
+                            continue;
+                        } else {
+                            Token::Invalid(c)
+                        }
+                    }
+                    '\n' => {
+                        self.advance();
+                        Token::Newline
+                    }
+                    c if c.is_alphanumeric() => Token::Ident(self.read_ident()),
+                    c => {
+                        self.advance();
+                        Token::Invalid(c)
+                    }
+                },
+                None => Token::EOI,
+            };
 
-        token
+            return token;
+        }
     }
 }
 
@@ -195,7 +228,7 @@ impl<'a> Parser<'a> {
     fn parse_expr(&mut self) -> Result<Expr, String> {
         let mut expr = self.parse_primary()?;
 
-        while self.cur != Token::EOL && self.cur != Token::RParen {
+        while self.cur != Token::EOI && self.cur != Token::RParen && self.cur != Token::SemiColon {
             let rhs = self.parse_primary()?;
             expr = Expr::app(expr, rhs);
         }
@@ -209,6 +242,18 @@ impl<'a> Parser<'a> {
         let body = self.parse_expr()?;
 
         Ok(Binding::new(name, body))
+    }
+
+    fn parse_file(&mut self) -> Result<Vec<Binding>, String> {
+        let mut res = vec![];
+
+        while self.cur != Token::EOI {
+            let binding = self.parse_binding()?;
+            res.push(binding);
+            self.expect(Token::SemiColon)?;
+        }
+
+        Ok(res)
     }
 }
 
@@ -389,6 +434,10 @@ impl Display for Binding {
     }
 }
 
+struct State {
+    bindings: HashMap<String, Binding>,
+}
+
 impl State {
     fn new() -> Self {
         Self {
@@ -396,7 +445,23 @@ impl State {
         }
     }
 
+    fn read_bindings_from_file(&mut self, path: &str) {
+        match fs::read_to_string(path) {
+            Ok(input) => {
+                let mut parser = Parser::new(&input);
+                match parser.parse_file() {
+                    Ok(bindings) => bindings
+                        .iter()
+                        .for_each(|binding| self.add_binding(binding.clone())),
+                    Err(e) => println!("!> Error parsing file '{}': {}", path, e),
+                }
+            }
+            Err(e) => println!("!> Error reading file '{}': {}", path, e),
+        }
+    }
+
     fn add_binding(&mut self, binding: Binding) {
+        println!("!> Created binding '{}'", binding.name);
         self.bindings.insert(binding.name.clone(), binding);
     }
 
@@ -410,8 +475,21 @@ impl State {
     fn display_bindigs(&self) -> String {
         self.bindings
             .iter()
-            .map(|(_, binding)| format!(" > {}\n", binding))
+            .map(|(_, binding)| format!(" > {};\n", binding))
             .collect()
+    }
+
+    fn save_bindings_to_file(&self, path: &str) {
+        let contents: String = self
+            .bindings
+            .clone()
+            .iter()
+            .map(|(_, binding)| format!("{};\n", binding))
+            .collect();
+        match fs::write(path, contents) {
+            Ok(_) => println!("!> Saved all bindings to '{}'", path),
+            Err(e) => println!("!> Error saving bindings to '{}': {}", path, e),
+        }
     }
 }
 
@@ -425,10 +503,6 @@ impl Binding {
     fn new(name: String, body: Expr) -> Self {
         Self { name, body }
     }
-}
-
-struct State {
-    bindings: HashMap<String, Binding>,
 }
 
 fn main() {
@@ -498,26 +572,29 @@ fn main() {
         if let Some(input) = input.trim().strip_prefix(":let") {
             let mut parser = Parser::new(&input.trim_start());
             match parser.parse_binding() {
-                Ok(binding) => {
-                    println!("!> Created binding '{}'", binding.name);
-                    state.add_binding(binding);
-                }
+                Ok(binding) => state.add_binding(binding),
                 Err(e) => println!("!> {}", e),
             }
+            continue;
+        }
+
+        if let Some(input) = input.trim().strip_prefix(":load") {
+            state.read_bindings_from_file(&input.trim_start());
+            continue;
+        }
+
+        if let Some(input) = input.trim().strip_prefix(":save") {
+            state.save_bindings_to_file(&input.trim_start());
             continue;
         }
 
         if let Some(input) = input.trim().strip_prefix(":delete") {
             let mut parser = Parser::new(&input.trim_start());
             match parser.expect_ident() {
-                Ok(name) => {
-                    match state.delete_binding(&name) {
-                        Ok(name) => println!("!> Removed binding '{}'", name),
-                        Err(e) => println!("!> Error: {}", e),
-                    }
-                    // println!("!> Created binding '{}'", binding.name);
-                    // state.add_binding(binding);
-                }
+                Ok(name) => match state.delete_binding(&name) {
+                    Ok(name) => println!("!> Removed binding '{}'", name),
+                    Err(e) => println!("!> Error: {}", e),
+                },
                 Err(e) => println!("!> {}", e),
             }
             continue;
