@@ -668,16 +668,6 @@ impl State {
     }
 
     fn help_handler(&self) {
-        // let max_name_width = self.commands.iter().fold(0, |acc, cmd| {
-        //     let name_len = cmd.name.len();
-        //     if name_len > acc { name_len } else { acc }
-        // });
-        // let max_sig_width = self.commands.iter().fold(0, |acc, cmd| {
-        //     let sig_len = cmd.sig.len();
-        //     if sig_len > acc { sig_len } else { acc }
-        // });
-        //
-
         let max_name_width = self
             .commands
             .iter()
