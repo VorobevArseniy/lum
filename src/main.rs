@@ -444,6 +444,7 @@ enum CommandKind {
     Delete,
     Load,
     Save,
+    Help,
 
     Eval,
     Unknown,
@@ -464,6 +465,7 @@ impl CommandKind {
             match cmd {
                 "quit" | "q" => (Self::Quit, args),
                 "debug" | "d" => (Self::Debug, args),
+                "help" | "h" => (Self::Help, args),
                 "ast" => (Self::AST, args),
                 "let" => (Self::Let, args),
                 "load" => (Self::Load, args),
@@ -482,24 +484,24 @@ struct Command {
     kind: CommandKind,
     name: String,
     alias: Option<String>,
+    sig: String,
     short_desc: String,
-    long_desc: Option<String>,
 }
 
 impl Command {
     fn new(
         kind: CommandKind,
-        name: String,
+        name: impl Into<String>,
         alias: Option<String>,
-        short_desc: String,
-        long_desc: Option<String>,
+        sig: impl Into<String>,
+        short_desc: impl Into<String>,
     ) -> Self {
         Self {
             kind,
-            name,
+            name: name.into(),
             alias,
-            short_desc: short_desc.clone(),
-            long_desc: long_desc,
+            sig: sig.into(),
+            short_desc: short_desc.into(),
         }
     }
 }
@@ -513,13 +515,22 @@ struct State {
 
 impl State {
     fn new(stdin: Stdin, stdout: Stdout) -> Self {
-        let commands = vec![Command::new(
-            CommandKind::Debug,
-            "debug".to_string(),
-            Some(":d".to_string()),
-            "step-by-step evaluation of the expression".to_string(),
-            None,
-        )];
+        let commands = vec![
+            Command::new(
+                CommandKind::Debug,
+                "debug",
+                Some(":d".to_string()),
+                "<expr>",
+                "step-by-step evaluation of the expression",
+            ),
+            Command::new(
+                CommandKind::Let,
+                "let",
+                None,
+                "[name] = <expr>",
+                "save expression in a associative name (binding)",
+            ),
+        ];
 
         Self {
             bindings: HashMap::new(),
@@ -563,6 +574,7 @@ impl State {
             .collect()
     }
 
+    // TODO: remove .clone()
     fn save_bindings_to_file(&self, path: &str) {
         let contents: String = self
             .bindings
@@ -656,6 +668,42 @@ impl State {
             Err(e) => println!("!> {}", e),
         };
     }
+
+    fn help_handler(&self) {
+        // let max_name_width = self.commands.iter().fold(0, |acc, cmd| {
+        //     let name_len = cmd.name.len();
+        //     if name_len > acc { name_len } else { acc }
+        // });
+        // let max_sig_width = self.commands.iter().fold(0, |acc, cmd| {
+        //     let sig_len = cmd.sig.len();
+        //     if sig_len > acc { sig_len } else { acc }
+        // });
+        //
+
+        let max_name_width = self
+            .commands
+            .iter()
+            .map(|cmd| cmd.name.len())
+            .max()
+            .unwrap_or(0);
+        let max_sig_width = self
+            .commands
+            .iter()
+            .map(|cmd| cmd.sig.len())
+            .max()
+            .unwrap_or(0);
+
+        self.commands.iter().for_each(|cmd| {
+            println!(
+                ">  :{name:<width$} {sig:<sig_width$} - {desc}",
+                name = cmd.name,
+                width = max_name_width,
+                sig = cmd.sig,
+                sig_width = max_sig_width,
+                desc = cmd.short_desc
+            );
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -702,8 +750,12 @@ fn main() {
             CommandKind::Load => state.load_command_handler(arg),
             CommandKind::Let => state.let_command_handler(arg),
             CommandKind::AST => state.ast_command_handler(arg),
+            CommandKind::Help => state.help_handler(),
 
-            CommandKind::Unknown => todo!("make here :help command happen"),
+            CommandKind::Unknown => {
+                state.help_handler();
+                println!("!> Error: Unknown command")
+            }
             CommandKind::Eval => state.eval_handler(trimmed),
         }
     }
