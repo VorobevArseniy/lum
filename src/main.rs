@@ -574,11 +574,9 @@ impl State {
             .collect()
     }
 
-    // TODO: remove .clone()
     fn save_bindings_to_file(&self, path: &str) {
         let contents: String = self
             .bindings
-            .clone()
             .iter()
             .map(|(_, binding)| format!("{};\n", binding))
             .collect();
