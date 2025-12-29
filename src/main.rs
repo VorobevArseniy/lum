@@ -557,8 +557,8 @@ impl State {
     // TODO: change .map() to .values()
     fn display_bindigs(&self) -> String {
         self.bindings
-            .iter()
-            .map(|(_, binding)| format!(" > {};\n", binding))
+            .values()
+            .map(|binding| format!(" > {};\n", binding))
             .collect()
     }
 
